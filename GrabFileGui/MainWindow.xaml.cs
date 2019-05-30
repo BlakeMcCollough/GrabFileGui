@@ -167,7 +167,6 @@ namespace GrabFileGui
                 line = infile.ReadLine();
             }
 
-            MessageBox.Show("End of file");
             infile.Close();
         }
 
