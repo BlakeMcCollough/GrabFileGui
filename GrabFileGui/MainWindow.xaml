@@ -5,17 +5,32 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:GrabFileGui"
         mc:Ignorable="d"
-        Title="Grab Reader" Height="484.091" Width="800">
+        Title="Grab Reader" Height="557.091" Width="913">
     <Grid Margin="0,0,0,40">
-        <Border BorderBrush="Black" BorderThickness="1" Margin="10">
-            <DataGrid x:Name="TaskList" Margin="9" Loaded="TaskList_Loaded" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed">
-                <DataGrid.RowDetailsTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Details}" Margin="10" />
-                    </DataTemplate>
-                </DataGrid.RowDetailsTemplate>
-            </DataGrid>
-        </Border>
+        <TabControl Margin="5,0,5,10">
+            <TabItem Header="Tasks">
+                <Border BorderBrush="Black" BorderThickness="1" Margin="10">
+                    <DataGrid x:Name="TaskList" Margin="9" Loaded="TaskList_Loaded" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed">
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Details}" Margin="10" />
+                            </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+            <TabItem Header="Disk">
+                <Border BorderBrush="Black" BorderThickness="1" Margin="10">
+                    <DataGrid x:Name="DiskList" Margin="9" Loaded="DiskList_Loaded" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed">
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Details}" Margin="10" />
+                            </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+        </TabControl>
         <Button x:Name="PauseButton" Content="Pause" Margin="46,0,0,-33" Grid.IsSharedSizeScope="True" HorizontalContentAlignment="Center" HorizontalAlignment="Left" Height="38" VerticalAlignment="Bottom" Width="86" Click="Button_Click"/>
         <Button x:Name="NextButton" Content="Next" Margin="166,0,0,-33" Grid.IsSharedSizeScope="True" HorizontalContentAlignment="Center" HorizontalAlignment="Left" Height="38" VerticalAlignment="Bottom" Width="86" Click="NextButton_Click" IsEnabled="False"/>
         <TextBox x:Name="SpeedBox" Margin="281,0,0,-33" TextWrapping="Wrap" Text="1000" Grid.IsSharedSizeScope="True" HorizontalContentAlignment="Center" HorizontalAlignment="Left" Height="38" Width="86" VerticalAlignment="Bottom" VerticalContentAlignment="Center" IsUndoEnabled="False" AllowDrop="False" LostFocus="SpeedBox_LostFocus" KeyDown="SpeedBox_KeyDown"/>
