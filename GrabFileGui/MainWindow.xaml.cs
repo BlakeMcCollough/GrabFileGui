@@ -77,21 +77,21 @@ namespace GrabFileGui
                     }
                     if (runningTasks.Exists(x => x.TSK == taskElements[TSK]))
                     {
-                        //Task foundOccurance = runningTasks.Find(x => x.TSK == taskElements[TSK]);
-                        //foundOccurance.TSK = taskElements[TSK];
-                        //foundOccurance.Client = taskElements[CLNT];
-                        //foundOccurance.App = taskElements[APP];
-                        //foundOccurance.Version = taskElements[VER];
-                        //foundOccurance.IAR = taskElements[IAR];
-                        //foundOccurance.CK = taskElements[CK];
-                        //foundOccurance.SVC = taskElements[SVC];
-                        //foundOccurance.CPU = "0%";
-                        //foundOccurance.CPUTime = TimeSpan.Parse(taskElements[CPU].Remove(8) + "." + taskElements[CPU].Substring(9));
-                        //foundOccurance.File = taskElements[FILE];
-                        //foundOccurance.KeyCalls = int.Parse(taskElements[KEY], System.Globalization.NumberStyles.HexNumber);
-                        //foundOccurance.DACalls = int.Parse(taskElements[DA], System.Globalization.NumberStyles.HexNumber);
-                        //foundOccurance.DskReads = int.Parse(taskElements[RD], System.Globalization.NumberStyles.HexNumber);
-                        //foundOccurance.DskWrite = int.Parse(taskElements[WR], System.Globalization.NumberStyles.HexNumber);
+                        Task foundOccurance = runningTasks.Find(x => x.TSK == taskElements[TSK]);
+                        foundOccurance.TSK = taskElements[TSK];
+                        foundOccurance.Client = taskElements[CLNT];
+                        foundOccurance.App = taskElements[APP];
+                        foundOccurance.Version = taskElements[VER];
+                        foundOccurance.IAR = taskElements[IAR];
+                        foundOccurance.CK = taskElements[CK];
+                        foundOccurance.SVC = taskElements[SVC];
+                        foundOccurance.CPU = "0%";
+                        foundOccurance.CPUTime = TimeSpan.Parse(taskElements[CPU].Remove(8) + "." + taskElements[CPU].Substring(9));
+                        foundOccurance.File = taskElements[FILE];
+                        foundOccurance.KeyCalls = int.Parse(taskElements[KEY], System.Globalization.NumberStyles.HexNumber);
+                        foundOccurance.DACalls = int.Parse(taskElements[DA], System.Globalization.NumberStyles.HexNumber);
+                        foundOccurance.DskReads = int.Parse(taskElements[RD], System.Globalization.NumberStyles.HexNumber);
+                        foundOccurance.DskWrite = int.Parse(taskElements[WR], System.Globalization.NumberStyles.HexNumber);
 
                         double differenceCPU = 1 - (new TimeSpan(0, 0, SEC) - foundOccurance.CPUTime).TotalSeconds;
                         if (differenceCPU > 0)
@@ -167,6 +167,7 @@ namespace GrabFileGui
                 line = infile.ReadLine();
             }
 
+            MessageBox.Show("End of file");
             infile.Close();
         }
 
