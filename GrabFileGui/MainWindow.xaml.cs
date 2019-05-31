@@ -16,6 +16,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Microsoft.Win32;
 
 namespace GrabFileGui
 {
@@ -24,6 +25,7 @@ namespace GrabFileGui
     /// </summary>
     public partial class MainWindow : Window
     {
+        private string path;
         private bool taskRunning; //makes sure that when TaskList is loaded again by mistake, it won't start a new work thread
         private bool stopped;
         private int delay;
@@ -31,6 +33,7 @@ namespace GrabFileGui
 
         public MainWindow()
         {
+            path = "";
             taskRunning = false;
             stopped = false;
             delay = 1000;
@@ -39,15 +42,15 @@ namespace GrabFileGui
         }
 
         //ESSENTIALLY works as main, responsible for waiting a second and updating the tasks
-        private async void TaskList_Loaded(object sender, RoutedEventArgs e) //I've added async here so that this runs asynchronously, meaning I can use Task.Delay without shutting down the UI
+        private async void TaskList_Loaded() //I've added async here so that this runs asynchronously, meaning I can use Task.Delay without shutting down the UI
         {
-            if (taskRunning == true)
+            if (taskRunning == true || string.IsNullOrEmpty(path))
             {
                 return;
             }
             taskRunning = true;
+            Tabs.IsEnabled = true;
 
-            const string PATH = "../../GRAB.190220.164513";
             const int LENGTH_DSK = 10;
             const int SEC = 1;
             const int TSK = 0, CLNT = 1, APP = 2, VER = 3, IAR = 4, CK = 5, SVC = 6, CPU = 7, FILE = 8, KEY = 9, DA = 10, RD = 11, WR = 12; //corresponds to index in task list
@@ -61,9 +64,9 @@ namespace GrabFileGui
             Regex stepAcceptRegex = new Regex(@"^\[\d\d Task info \d+]$");
             //similar to tskAccept, but checks for disk seize header
             Regex diskAcceptRegex = new Regex(@"^\[\d\d Disk seize]$");
+            
 
-
-            StreamReader infile = new StreamReader(PATH);
+            StreamReader infile = new StreamReader(path);
             string line = infile.ReadLine();
             int secondCounter = 1;
             double netUsage = 0;
@@ -74,7 +77,7 @@ namespace GrabFileGui
             TaskList.ItemsSource = runningTasks;
             DiskList.ItemsSource = diskLogs;
 
-            while (line != null)
+            while (line != null && taskRunning == true)
             {
                 if (tskAcceptRegex.IsMatch(line) == true) //is an acceptable entry
                 {
@@ -218,59 +221,81 @@ namespace GrabFileGui
                 line = infile.ReadLine();
             }
 
-            MessageBox.Show("End of file");
+            if(runningTasks.Any() == true && taskRunning == true) //read through the entire grab file
+            {
+                MessageBox.Show("End of file");
+            }
+            else if(runningTasks.Any() == true) //reading through grab file, but was interrupted
+            {
+                Tabs.IsEnabled = false;
+            }
+            else //didn't read anything
+            {
+                Tabs.IsEnabled = false;
+                MessageBox.Show("There appears to be no data\nAre you using the correct file format?");
+            }
+
+            taskRunning = false;
             infile.Close();
-        }
-
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            if(stopped == true)
-            {
-                NextButton.IsEnabled = false;
-                stopped = false;
-                PauseButton.Content = "Pause";
-            }
-            else
-            {
-                NextButton.IsEnabled = true;
-                stopped = true;
-                PauseButton.Content = "Resume";
-            }
-        }
-
-        private void NextButton_Click(object sender, RoutedEventArgs e)
-        {
-            killDelay.Cancel();
-        }
-
-        private void SpeedBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            int newSpeed = 0;
-
-            if(Int32.TryParse(SpeedBox.Text, out newSpeed) && newSpeed > 0 && newSpeed < 10000000)
-            {
-                delay = newSpeed;
-            }
-            else
-            {
-                SpeedBox.Text = delay.ToString();
-            }
-        }
-        private void SpeedBox_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Return)
-            {
-                if (e.Key == Key.Enter)
-                {
-                    SpeedBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
-                }
-            }
         }
 
 
         private void DiskList_Loaded(object sender, RoutedEventArgs e)
         {
             //Console.WriteLine("Loaded disklist gui");
+        }
+
+        private void OpenGrab_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog newFileWindow = new OpenFileDialog();
+            if(newFileWindow.ShowDialog() == true)
+            {
+                taskRunning = false;
+                killDelay.Cancel();
+                path = newFileWindow.FileName;
+                TaskList_Loaded();
+            }
+        }
+
+        private void Refresh_Click(object sender, RoutedEventArgs e)
+        {
+            killDelay.Cancel();
+        }
+
+        private void Pause_Click(object sender, RoutedEventArgs e)
+        {
+            if (stopped == true)
+            {
+                stopped = false;
+            }
+            else
+            {
+                stopped = true;
+            }
+        }
+
+        private void highSpeed_Click(object sender, RoutedEventArgs e)
+        {
+            delay = 500;
+            highSpeed.IsChecked = true;
+            medSpeed.IsChecked = false;
+            lowSpeed.IsChecked = false;
+        }
+
+        private void medSpeed_Click(object sender, RoutedEventArgs e)
+        {
+            delay = 1000;
+            highSpeed.IsChecked = false;
+            medSpeed.IsChecked = true;
+            lowSpeed.IsChecked = false;
+        }
+
+        private void lowSpeed_Click(object sender, RoutedEventArgs e)
+        {
+            delay = 5000;
+            highSpeed.IsChecked = false;
+            medSpeed.IsChecked = false;
+            lowSpeed.IsChecked = true;
         }
     }
 }
