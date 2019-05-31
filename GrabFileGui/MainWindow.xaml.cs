@@ -41,22 +41,22 @@ namespace GrabFileGui
         //ESSENTIALLY works as main, responsible for waiting a second and updating the tasks
         private async void TaskList_Loaded(object sender, RoutedEventArgs e) //I've added async here so that this runs asynchronously, meaning I can use Task.Delay without shutting down the UI
         {
-            if(taskRunning == true)
+            if (taskRunning == true)
             {
                 return;
             }
             taskRunning = true;
 
-            const string PATH = "../../GRAB.190509.123741";
-            const int LENGTH_TSK = 13;
+            const string PATH = "../../GRAB.190220.164513";
             const int LENGTH_DSK = 10;
             const int SEC = 1;
             const int TSK = 0, CLNT = 1, APP = 2, VER = 3, IAR = 4, CK = 5, SVC = 6, CPU = 7, FILE = 8, KEY = 9, DA = 10, RD = 11, WR = 12; //corresponds to index in task list
+            int[] LENGTH_TSK = { 3, 12, 8, 8, 4, 2, 2, 12, 7, 8, 8, 8, 8 }; //list of sizes corresponding to task consts
             const int DTSK = 2, SEIZE = 4, QUEUE = 6, DAPP = 7, DIAR = 8, TIME = 9; //corresponds to index in disklog list
 
             //checks for three numbers, 12 of any characters, any word (including .) and the rest of the data entry in the format of the grab file
             //the purpose is to check if the line read is a data entry
-            Regex tskAcceptRegex = new Regex(@"^\d{3} .{12} \w* +(\w|\\.)* +\w{4} +\w\w +\w\w +\d\d:\d\d:\d\d:\d\d\d +\w* +\w{8} +\w{8} \w{8} +\w{8} *$");
+            Regex tskAcceptRegex = new Regex(@"^\d{3} .{12} .{8} .{8} \w{4} \w\w \w\w \d\d:\d\d:\d\d:\d\d\d .{7} \w{8} \w{8} \w{8} \w{8} *$");
             //similar to tskAccept, but it checks if it's a header to a new second
             Regex stepAcceptRegex = new Regex(@"^\[\d\d Task info \d+]$");
             //similar to tskAccept, but checks for disk seize header
@@ -79,17 +79,26 @@ namespace GrabFileGui
                 if (tskAcceptRegex.IsMatch(line) == true) //is an acceptable entry
                 {
                     //since client should contain any character, it cannot be tokenized by whitespace. Hardcoding instead
-                    string tskLine = line.Substring(0, 3);
-                    string clientLine = line.Substring(4, 12);
-                    line = line.Substring(17);
+                    string tskLine = line.Substring(0, LENGTH_TSK[TSK]);
+                    string clientLine = line.Substring(LENGTH_TSK[TSK] + 1, LENGTH_TSK[CLNT]);
+                    line = line.Substring(LENGTH_TSK[TSK] + LENGTH_TSK[CLNT] + 1 + 1);
                     string[] returnedSplitList = Regex.Split(line, @" +");
                     
                     List<string> taskElements = returnedSplitList.OfType<string>().ToList(); //fancy way of transforming string array to list
                     taskElements.Insert(0, clientLine);
                     taskElements.Insert(0, tskLine);
-                    if (taskElements.Count != LENGTH_TSK)
+
+                    if (taskElements.Count != LENGTH_TSK.Length) //list is not the correct size, meaning there is a blank entry somewhere
                     {
-                        taskElements.Insert(8, " ");
+                        int rdHead = 0;
+                        for(int i = 2; i < 13; i++)
+                        {
+                            if(string.IsNullOrWhiteSpace(line.Substring(rdHead, LENGTH_TSK[i])))
+                            {
+                                taskElements.Insert(i, " ");
+                            }
+                            rdHead = rdHead + LENGTH_TSK[i] + 1;
+                        }
                     }
                     if (runningTasks.Exists(x => x.TSK == taskElements[TSK]))
                     {
@@ -145,6 +154,7 @@ namespace GrabFileGui
                 }
                 else if(stepAcceptRegex.IsMatch(line) == true && runningTasks.Count != 0) //assumes that each second runs in order
                 {
+                    //this nested loop takes all the indexes in usageQuery, sorts them by seconds, then moves them to the top of runningTasks
                     foreach(string index in usageQuery)
                     {
                         Task currentTask = runningTasks.Find(x => x.TSK == index);
@@ -152,9 +162,15 @@ namespace GrabFileGui
                         {
                             currentTask.CPU = String.Concat(Math.Round(((currentTask.CPUTime).TotalSeconds * 100), 2).ToString(), "%"); //doesn't calculate anything anymore, just a % rep of seconds difference
                             runningTasks.Remove(currentTask);
-                            runningTasks.Insert(0, currentTask);
+                            int i = 0;
+                            while(runningTasks[i].CPUTime.TotalSeconds > currentTask.CPUTime.TotalSeconds)
+                            {
+                                i = i + 1;
+                            }
+                            runningTasks.Insert(i, currentTask);
                         }
                     }
+
                     TaskList.Items.Refresh();
                     DiskList.Items.Refresh();
 
