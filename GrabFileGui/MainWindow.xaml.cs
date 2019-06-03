@@ -52,6 +52,7 @@ namespace GrabFileGui
             taskRunning = true;
             Tabs.IsEnabled = true;
 
+            const double GRAPH_MARGIN = 10;
             const int LENGTH_DSK = 10;
             const int SEC = 1;
             const int TSK = 0, CLNT = 1, APP = 2, VER = 3, IAR = 4, CK = 5, SVC = 6, CPU = 7, FILE = 8, KEY = 9, DA = 10, RD = 11, WR = 12; //corresponds to index in task list
@@ -78,6 +79,11 @@ namespace GrabFileGui
             TaskList.ItemsSource = runningTasks;
             DiskList.ItemsSource = diskLogs;
             string startupString = line;
+
+            UsageGraph CPUgraph = new UsageGraph(GRAPH_MARGIN, canGraph.Width - GRAPH_MARGIN, GRAPH_MARGIN, canGraph.Height - GRAPH_MARGIN, canGraph.Width, canGraph.Height, GRAPH_MARGIN); //makes a new graph object
+            canGraph.Children.Add(CPUgraph.getXaxis()); //draw x-axis
+            canGraph.Children.Add(CPUgraph.getYaxis()); //draw y-axis
+            canGraph.Children.Add(CPUgraph.getLine()); //draws the changing line
 
             while (line != null && taskRunning == true)
             {
@@ -178,6 +184,7 @@ namespace GrabFileGui
 
                     TaskList.Items.Refresh();
                     DiskList.Items.Refresh();
+                    CPUgraph.addNewPoint(netUsage);
 
                     do
                     {
@@ -310,6 +317,67 @@ namespace GrabFileGui
         private void MenuItem_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void CanGraph_Loaded(object sender, RoutedEventArgs e)
+        {
+            //const double MARGIN = 10;
+            //const double STEP = 10;
+            //double xMax = canGraph.Width - MARGIN;
+            //double yMax = canGraph.Height - MARGIN;
+
+            //GeometryGroup xGeo = new GeometryGroup();
+            //xGeo.Children.Add(new LineGeometry(
+            //    new Point(0, yMax), new Point(canGraph.Width, yMax)
+            //    ));
+
+            //for(double x = MARGIN + STEP; x <= canGraph.Width; x += STEP)
+            //{
+            //    xGeo.Children.Add(new LineGeometry(
+            //        new Point(x, yMax - MARGIN/2), new Point(x, yMax + MARGIN / 2)
+            //    ));
+
+            //}
+            //System.Windows.Shapes.Path xPath = new System.Windows.Shapes.Path();
+            //xPath.StrokeThickness = 1;
+            //xPath.Stroke = Brushes.Black;
+            //xPath.Data = xGeo;
+            //canGraph.Children.Add(xPath);
+
+
+
+            //GeometryGroup yGeo = new GeometryGroup();
+            //yGeo.Children.Add(new LineGeometry(
+            //    new Point(MARGIN, 0), new Point(MARGIN, canGraph.Height)
+            //    ));
+
+            //for (double y = STEP; y <= canGraph.Height - STEP; y += STEP)
+            //{
+            //    yGeo.Children.Add(new LineGeometry(
+            //        new Point(MARGIN - MARGIN/2, y), new Point(MARGIN + MARGIN/2, y)
+            //    ));
+
+            //}
+            //System.Windows.Shapes.Path yPath = new System.Windows.Shapes.Path();
+            //yPath.StrokeThickness = 1;
+            //yPath.Data = yGeo;
+            //canGraph.Children.Add(yPath);
+
+
+            ////data sets
+            //PointCollection pts = new PointCollection();
+            //pts.Add(new Point(MARGIN, MARGIN));
+            //pts.Add(new Point(100, 100));
+            //pts.Add(new Point(200, 180));
+            //pts.Add(new Point(300, 200));
+            //pts.Add(new Point(400, 120));
+
+            //Polyline myLine = new Polyline();
+            //myLine.StrokeThickness = 1;
+            //myLine.Stroke = Brushes.Blue;
+            //myLine.Points = pts;
+            //canGraph.Children.Add(myLine);
+            //pts.Add(new Point(xMax, yMax));
         }
     }
 }

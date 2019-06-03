@@ -60,6 +60,7 @@
     </ApplicationDefinition>
     <Compile Include="DiskUsageLog.cs" />
     <Compile Include="Task.cs" />
+    <Compile Include="UsageGraph.cs" />
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
