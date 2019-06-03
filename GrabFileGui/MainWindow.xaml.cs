@@ -17,6 +17,7 @@ using System.Windows.Threading;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32;
+using ZetaIpc.Runtime.Client;
 
 namespace GrabFileGui
 {
@@ -76,6 +77,7 @@ namespace GrabFileGui
             List<string> usageQuery = new List<string>(); //if CPU changed for a task, its TSK index is stored here in an attempt to reduce time complexity
             TaskList.ItemsSource = runningTasks;
             DiskList.ItemsSource = diskLogs;
+            string startupString = line;
 
             while (line != null && taskRunning == true)
             {
@@ -197,6 +199,10 @@ namespace GrabFileGui
                     netUsage = 0;
                     secondCounter = secondCounter + 1;
                 }
+                else if(stepAcceptRegex.IsMatch(line) == true)
+                {
+                    StartupLog.Text = startupString;
+                }
                 else if(diskAcceptRegex.IsMatch(line) == true)
                 {
                     line = infile.ReadLine(); //we're doing a readline here since the next line will (hopefully) be disk stuff
@@ -217,7 +223,10 @@ namespace GrabFileGui
                     }
                 }
 
-
+                if(StartupLog.Text == "")
+                {
+                    startupString = startupString + line + "\n";
+                }
                 line = infile.ReadLine();
             }
 
@@ -296,6 +305,11 @@ namespace GrabFileGui
             highSpeed.IsChecked = false;
             medSpeed.IsChecked = false;
             lowSpeed.IsChecked = true;
+        }
+
+        private void MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
         }
     }
 }
