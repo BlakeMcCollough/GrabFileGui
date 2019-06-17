@@ -79,6 +79,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="Constants.cs" />
     <Compile Include="DiskUsageLog.cs" />
     <Compile Include="Pipeline.cs" />
     <Compile Include="Task.cs" />

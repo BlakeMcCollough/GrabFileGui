@@ -18,6 +18,8 @@ namespace GrabFileGui
     /// </summary>
     public partial class MainWindow : Window
     {
+        private Constants consts;
+
         private string path;
         private string copyrightBox;
         private string historyRoot;
@@ -34,8 +36,19 @@ namespace GrabFileGui
         private ClientPipe readPipe;
         private CancellationTokenSource killDelay;
 
+        //stuff below WERE things that used to be local but are now global to help divide and conquer
+        UsageGraph CPUgraph;
+        private string line;
+        private List<Task> runningTasks;
+        private List<DiskUsageLog> diskLogs;
+        private List<string> usageQuery;
+        private double netUsage;
+        int secondCounter;
+
         public MainWindow()
         {
+            consts = new Constants();
+
             path = "live";
             historyRoot = "GrabHistory";
             historyFolder = historyRoot + @"\" + DateTime.Now.ToString("MMddyyyy");
@@ -108,12 +121,188 @@ namespace GrabFileGui
             return t1.Result;
         }
 
+        //adds or updates a task in runningTasks using data passed as a list of strings
+        private Task UpdateTasks(List<string> taskElements)
+        {
+            Task foundOccurance = runningTasks.Find(x => x.TSK == taskElements[consts.TSK]);
+            if(foundOccurance == null)
+            {
+                foundOccurance = new Task();
+            }
+            foundOccurance.TSK = taskElements[consts.TSK];
+            foundOccurance.Client = taskElements[consts.CLNT];
+            foundOccurance.App = taskElements[consts.APP];
+            foundOccurance.Version = taskElements[consts.VER];
+            foundOccurance.IAR = taskElements[consts.IAR];
+            foundOccurance.CK = taskElements[consts.CK];
+            foundOccurance.SVC = taskElements[consts.SVC];
+            foundOccurance.CPU = "0%";
+            foundOccurance.CPUTime = TimeSpan.Parse(taskElements[consts.CPU].Remove(consts.TIME_DOT) + "." + taskElements[consts.CPU].Substring(consts.TIME_DOT + 1));
+            foundOccurance.File = taskElements[consts.FILE];
+            foundOccurance.KeyCalls = int.Parse(taskElements[consts.KEY], System.Globalization.NumberStyles.HexNumber);
+            foundOccurance.DACalls = int.Parse(taskElements[consts.DA], System.Globalization.NumberStyles.HexNumber);
+            foundOccurance.DskReads = int.Parse(taskElements[consts.RD], System.Globalization.NumberStyles.HexNumber);
+            foundOccurance.DskWrite = int.Parse(taskElements[consts.WR], System.Globalization.NumberStyles.HexNumber);
+
+            double differenceCPU = 1 - (new TimeSpan(0, 0, consts.SEC) - foundOccurance.CPUTime).TotalSeconds;
+            if (differenceCPU > 0)
+            {
+                netUsage = netUsage + differenceCPU;
+                usageQuery.Insert(0, taskElements[consts.TSK]);
+            }
+
+            return foundOccurance;
+        }
+
+        private void AddToDiskQuery(List<string> diskElements)
+        {
+            if (diskElements.Count == consts.LENGTH_DSK)
+            {
+                if (diskLogs.Count >= consts.MAX_DSK_LOGS)
+                {
+                    diskLogs.RemoveAt(0);
+                }
+                diskLogs.Add(new DiskUsageLog()
+                {
+                    Sec = secondCounter,
+                    TSK = diskElements[consts.DTSK],
+                    Seize = diskElements[consts.SEIZE],
+                    Queue = diskElements[consts.QUEUE],
+                    App = diskElements[consts.DAPP],
+                    IAR = diskElements[consts.DIAR],
+                    TimeStamp = diskElements[consts.TIME]
+                });
+            }
+        }
 
 
+        //the read line is a task element, this method parses it correctly and stores it to a Task object
+        private void LineIsTaskline()
+        {
+            //since client should contain any character, it cannot be tokenized by whitespace. Hardcoding instead
+            string tskLine = line.Substring(0, consts.LENGTH_TSK[consts.TSK]);
+            string clientLine = line.Substring(consts.LENGTH_TSK[consts.TSK] + 1, consts.LENGTH_TSK[consts.CLNT]);
+            line = line.Substring(consts.LENGTH_TSK[consts.TSK] + consts.LENGTH_TSK[consts.CLNT] + 1 + 1);
 
+            List<string> taskElements = Regex.Split(line, @" +").OfType<string>().ToList(); //fancy way of transforming string array to list
+            taskElements.Insert(0, clientLine);
+            taskElements.Insert(0, tskLine);
 
+            if (taskElements.Count != consts.LENGTH_TSK.Length) //list is not the correct size, meaning there is a blank entry somewhere
+            {
+                int rdHead = 0;
+                for (int i = 2; i < 13; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(line.Substring(rdHead, consts.LENGTH_TSK[i])))
+                    {
+                        taskElements.Insert(i, " ");
+                    }
+                    rdHead = rdHead + consts.LENGTH_TSK[i] + 1;
+                }
+            }
+            if (runningTasks.Exists(x => x.TSK == taskElements[consts.TSK]))
+            {
+                UpdateTasks(taskElements);
+            }
+            else
+            {
+                runningTasks.Add(UpdateTasks(taskElements));
+            }
+        }
 
-        //ESSENTIALLY works as main, responsible for waiting a second and updating the tasks
+        //this nested loop takes all the indexes in usageQuery, sorts them by seconds, then moves them to the top of runningTasks
+        private void SortUsageQuery()
+        {
+            foreach (string index in usageQuery)
+            {
+                Task currentTask = runningTasks.Find(x => x.TSK == index);
+                if (currentTask != null)
+                {
+                    currentTask.CPU = String.Concat(Math.Round(((currentTask.CPUTime).TotalSeconds * 100), 2).ToString(), "%"); //doesn't calculate anything anymore, just a % rep of seconds difference
+                    runningTasks.Remove(currentTask);
+                    int i = 0;
+                    while (runningTasks[i].CPUTime.TotalSeconds > currentTask.CPUTime.TotalSeconds)
+                    {
+                        i = i + 1;
+                    }
+                    runningTasks.Insert(i, currentTask);
+                }
+            }
+            if (sortBy == consts.SORT_DA) //case statements don't like const.SORT, using if ladder instead
+            {
+                runningTasks.Sort((x, y) => y.DACalls.CompareTo(x.DACalls));
+            }
+            else if (sortBy == consts.SORT_KEY)
+            {
+                runningTasks.Sort((x, y) => y.KeyCalls.CompareTo(x.KeyCalls));
+            }
+            else if (sortBy == consts.SORT_RD)
+            {
+                runningTasks.Sort((x, y) => y.DskReads.CompareTo(x.DskReads));
+            }
+            else if (sortBy == consts.SORT_WR)
+            {
+                runningTasks.Sort((x, y) => y.DskWrite.CompareTo(x.DskWrite));
+            }
+            else if (sortBy == consts.SORT_TSK)
+            {
+                runningTasks.Sort((x, y) => x.TSK.CompareTo(y.TSK));
+            }
+        }
+
+        //the read line says a new second is starting, prepares everything for new data to be read in
+        private async System.Threading.Tasks.Task LineIsNewSecond()
+        {
+            SortUsageQuery();
+
+            if (stopped == false || fileOpened == true)
+            {
+                TaskList.Items.Refresh();
+                CPUgraph.addNewPoint(netUsage);
+            }
+            DiskList.Items.Refresh(); //throws an exception if this is paused
+
+            //if the delay needs to stop, this catches the exception thrown; this whole block is encapsulated in an if because it should only pause if reading a file
+            if (fileOpened == true)
+            {
+                waitingOnFeedback = true;
+                do
+                {
+                    try
+                    {
+                        await System.Threading.Tasks.Task.Delay(delay, killDelay.Token);
+                    }
+                    catch
+                    {
+                        //next has been pressed
+                        killDelay.Dispose();
+                        killDelay = new CancellationTokenSource();
+                        break;
+                    }
+
+                } while (stopped == true);
+                waitingOnFeedback = false;
+            }
+
+            usageQuery.Clear();
+            netUsage = 0;
+            secondCounter = secondCounter + 1;
+            Console.WriteLine(secondCounter);
+        }
+
+        private async void ChangeCopyrightBox()
+        {
+            copyrightBox = "";
+            Regex startupRegex = new Regex(@"^\[\d\d Startup messages]$");
+            while (startupRegex.IsMatch(line) != true)
+            {
+                copyrightBox = copyrightBox + "\n" + line;
+                line = await ReadNextLine();
+            }
+            copyrightBox = Regex.Replace(copyrightBox, @"�", ""); //it works?
+        }
+
+        //acts as main loop: is responsible for instantiation/closing objects, determining if reading file or live data, navigating through file, and catching wonky behavior
         private async void TaskList_Loaded() //I've added async here so that this runs asynchronously, meaning I can use Task.Delay without shutting down the UI
         {
             if (taskRunning == true || string.IsNullOrEmpty(path))
@@ -122,26 +311,6 @@ namespace GrabFileGui
             }
             taskRunning = true;
             Tabs.IsEnabled = true;
-
-            const double GRAPH_MARGIN = 10;
-            const int LENGTH_DSK = 10;
-            const int MAX_DISK_LOGS = 20;
-            const int SEC = 1;
-            const int SORT_TSK = 6, SORT_KEY = 2, SORT_DA = 3, SORT_RD = 4, SORT_WR = 5;
-            const int TSK = 0, CLNT = 1, APP = 2, VER = 3, IAR = 4, CK = 5, SVC = 6, CPU = 7, FILE = 8, KEY = 9, DA = 10, RD = 11, WR = 12; //corresponds to index in task list
-            int[] LENGTH_TSK = { 3, 12, 8, 8, 4, 2, 2, 12, 7, 8, 8, 8, 8 }; //list of sizes corresponding to task consts
-            const int DTSK = 2, SEIZE = 4, QUEUE = 6, DAPP = 7, DIAR = 8, TIME = 9; //corresponds to index in disklog list
-
-            //checks for three numbers, 12 of any characters, any word (including .) and the rest of the data entry in the format of the grab file
-            //the purpose is to check if the line read is a data entry
-            Regex tskAcceptRegex = new Regex(@"^\d{3} .{12} .{8} .{8} \w{4} \w\w \w\w \d\d:\d\d:\d\d:\d\d\d .{7} \w{8} \w{8} \w{8} \w{8} *$");
-            //similar to tskAccept, but it checks if it's a header to a new second
-            Regex stepAcceptRegex = new Regex(@"^\[\d\d Task info \d+]$");
-            //similar to tskAccept, but checks for disk seize header
-            Regex diskAcceptRegex = new Regex(@"^\[\d\d Disk seize]$");
-            //this is just used to find the copyright section, the while loop should read through it until startup section is found
-            Regex isCpyrtSectionRegex = new Regex(@"^\[\d\d Copyright]$");
-
 
             if(fileOpened == true)
             {
@@ -159,219 +328,54 @@ namespace GrabFileGui
                     return;
                 }
             }
-            string line = await ReadNextLine();
+            line = await ReadNextLine();
 
 
 
             //StreamReader infile = new StreamReader(path);
             //string line = infile.ReadLine();
-            int secondCounter = 1;
-            double netUsage = 0;
+            secondCounter = 1;
+            netUsage = 0;
             copyrightBox = string.Empty;
 
-            List<Task> runningTasks = new List<Task>(); //list of task objects to be displayed by DataGrid
-            List<DiskUsageLog> diskLogs = new List<DiskUsageLog>();
-            List<string> usageQuery = new List<string>(); //if CPU changed for a task, its TSK index is stored here in an attempt to reduce time complexity
+            runningTasks = new List<Task>(); //list of task objects to be displayed by DataGrid
+            diskLogs = new List<DiskUsageLog>();
+            usageQuery = new List<string>(); //if CPU changed for a task, its TSK index is stored here in an attempt to reduce time complexity
             TaskList.ItemsSource = runningTasks;
             DiskList.ItemsSource = diskLogs;
             StartupLog.Text = "";
             string startupString = line;
 
             canGraph.Children.Clear(); //makes sure that when a new file opens, the old graph goes away
-            UsageGraph CPUgraph = new UsageGraph(GRAPH_MARGIN, canGraph.Width - GRAPH_MARGIN, GRAPH_MARGIN, canGraph.Height - GRAPH_MARGIN, canGraph.Width, canGraph.Height, GRAPH_MARGIN); //makes a new graph object
+            CPUgraph = new UsageGraph(consts.GRAPH_MARGIN, canGraph.Width - consts.GRAPH_MARGIN, consts.GRAPH_MARGIN, canGraph.Height - consts.GRAPH_MARGIN, canGraph.Width, canGraph.Height, consts.GRAPH_MARGIN); //makes a new graph object
             canGraph.Children.Add(CPUgraph.getXaxis()); //draw x-axis
             canGraph.Children.Add(CPUgraph.getYaxis()); //draw y-axis
             canGraph.Children.Add(CPUgraph.getLine()); //draws the changing line
 
             while (line != null && taskRunning == true)
             {
-                if (tskAcceptRegex.IsMatch(line) == true) //is an acceptable entry
+                if (consts.TASK_REGEX.IsMatch(line) == true) //is an acceptable entry
                 {
-                    //since client should contain any character, it cannot be tokenized by whitespace. Hardcoding instead
-                    string tskLine = line.Substring(0, LENGTH_TSK[TSK]);
-                    string clientLine = line.Substring(LENGTH_TSK[TSK] + 1, LENGTH_TSK[CLNT]);
-                    line = line.Substring(LENGTH_TSK[TSK] + LENGTH_TSK[CLNT] + 1 + 1);
-                    string[] returnedSplitList = Regex.Split(line, @" +");
-                    
-                    List<string> taskElements = returnedSplitList.OfType<string>().ToList(); //fancy way of transforming string array to list
-                    taskElements.Insert(0, clientLine);
-                    taskElements.Insert(0, tskLine);
-
-                    if (taskElements.Count != LENGTH_TSK.Length) //list is not the correct size, meaning there is a blank entry somewhere
-                    {
-                        int rdHead = 0;
-                        for(int i = 2; i < 13; i++)
-                        {
-                            if(string.IsNullOrWhiteSpace(line.Substring(rdHead, LENGTH_TSK[i])))
-                            {
-                                taskElements.Insert(i, " ");
-                            }
-                            rdHead = rdHead + LENGTH_TSK[i] + 1;
-                        }
-                    }
-                    if (runningTasks.Exists(x => x.TSK == taskElements[TSK]))
-                    {
-                        Task foundOccurance = runningTasks.Find(x => x.TSK == taskElements[TSK]);
-                        foundOccurance.TSK = taskElements[TSK];
-                        foundOccurance.Client = taskElements[CLNT];
-                        foundOccurance.App = taskElements[APP];
-                        foundOccurance.Version = taskElements[VER];
-                        foundOccurance.IAR = taskElements[IAR];
-                        foundOccurance.CK = taskElements[CK];
-                        foundOccurance.SVC = taskElements[SVC];
-                        foundOccurance.CPU = "0%";
-                        foundOccurance.CPUTime = TimeSpan.Parse(taskElements[CPU].Remove(8) + "." + taskElements[CPU].Substring(9));
-                        foundOccurance.File = taskElements[FILE];
-                        foundOccurance.KeyCalls = int.Parse(taskElements[KEY], System.Globalization.NumberStyles.HexNumber);
-                        foundOccurance.DACalls = int.Parse(taskElements[DA], System.Globalization.NumberStyles.HexNumber);
-                        foundOccurance.DskReads = int.Parse(taskElements[RD], System.Globalization.NumberStyles.HexNumber);
-                        foundOccurance.DskWrite = int.Parse(taskElements[WR], System.Globalization.NumberStyles.HexNumber);
-
-                        double differenceCPU = 1 - (new TimeSpan(0, 0, SEC) - foundOccurance.CPUTime).TotalSeconds;
-                        if (differenceCPU > 0)
-                        {
-                            netUsage = netUsage + differenceCPU;
-                            usageQuery.Insert(0, taskElements[TSK]); //even though TSK index acts like an int, it's really a string
-                        }
-                    }
-                    else
-                    {
-                        runningTasks.Add(new Task()
-                        {
-                            TSK = taskElements[TSK],
-                            Client = taskElements[CLNT],
-                            App = taskElements[APP],
-                            Version = taskElements[VER],
-                            IAR = taskElements[IAR],
-                            CK = taskElements[CK],
-                            SVC = taskElements[SVC],
-                            CPU = "0%",
-                            CPUTime = TimeSpan.Parse(taskElements[CPU].Remove(8) + "." + taskElements[CPU].Substring(9)),
-                            File = taskElements[FILE],
-                            KeyCalls = int.Parse(taskElements[KEY], System.Globalization.NumberStyles.HexNumber),
-                            DACalls = int.Parse(taskElements[DA], System.Globalization.NumberStyles.HexNumber),
-                            DskReads = int.Parse(taskElements[RD], System.Globalization.NumberStyles.HexNumber),
-                            DskWrite = int.Parse(taskElements[WR], System.Globalization.NumberStyles.HexNumber)
-                        });
-                        double differenceCPU = 1 - (new TimeSpan(0, 0, SEC) - runningTasks.Last().CPUTime).TotalSeconds;
-                        if (differenceCPU > 0)
-                        {
-                            netUsage = netUsage + differenceCPU;
-                            usageQuery.Insert(0, taskElements[TSK]);
-                        }
-                    }
+                    LineIsTaskline();
                 }
-                else if(stepAcceptRegex.IsMatch(line) == true && runningTasks.Count != 0) //assumes that each second runs in order
+                else if(consts.STEP_REGEX.IsMatch(line) == true && runningTasks.Count != 0) //assumes that each second runs in order
                 {
-                    //this nested loop takes all the indexes in usageQuery, sorts them by seconds, then moves them to the top of runningTasks
-                    foreach(string index in usageQuery)
-                    {
-                        Task currentTask = runningTasks.Find(x => x.TSK == index);
-                        if(currentTask != null)
-                        {
-                            currentTask.CPU = String.Concat(Math.Round(((currentTask.CPUTime).TotalSeconds * 100), 2).ToString(), "%"); //doesn't calculate anything anymore, just a % rep of seconds difference
-                            runningTasks.Remove(currentTask);
-                            int i = 0;
-                            while(runningTasks[i].CPUTime.TotalSeconds > currentTask.CPUTime.TotalSeconds)
-                            {
-                                i = i + 1;
-                            }
-                            runningTasks.Insert(i, currentTask);
-                        }
-                    }
-                    switch(sortBy)
-                    {
-                        case SORT_DA:
-                            runningTasks.Sort((x, y) => y.DACalls.CompareTo(x.DACalls));
-                            break;
-                        case SORT_KEY:
-                            runningTasks.Sort((x, y) => y.KeyCalls.CompareTo(x.KeyCalls));
-                            break;
-                        case SORT_RD:
-                            runningTasks.Sort((x, y) => y.DskReads.CompareTo(x.DskReads));
-                            break;
-                        case SORT_WR:
-                            runningTasks.Sort((x, y) => y.DskWrite.CompareTo(x.DskWrite));
-                            break;
-                        case SORT_TSK:
-                            runningTasks.Sort((x, y) => x.TSK.CompareTo(y.TSK));
-                            break;
-                    }
-
-
-                    if (stopped == false || fileOpened == true)
-                    {
-                        TaskList.Items.Refresh();
-                        CPUgraph.addNewPoint(netUsage);
-                    }
-                    DiskList.Items.Refresh(); //throws an exception if this is paused
-
-                    //if the delay needs to stop, this catches the exception thrown; this whole block is encapsulated in an if because it should only pause if reading a file
-                    if (fileOpened == true)
-                    {
-                        waitingOnFeedback = true;
-                        do
-                        {
-                            try
-                            {
-                                await System.Threading.Tasks.Task.Delay(delay, killDelay.Token);
-                            }
-                            catch
-                            {
-                                //next has been pressed
-                                killDelay.Dispose();
-                                killDelay = new CancellationTokenSource();
-                                break;
-                            }
-
-                        } while (stopped == true);
-                        waitingOnFeedback = false;
-                    }
-
-                    usageQuery.Clear();
-                    netUsage = 0;
-                    secondCounter = secondCounter + 1;
-                    Console.WriteLine(secondCounter);
+                    await LineIsNewSecond();
                 }
-                else if(stepAcceptRegex.IsMatch(line) == true)
+                else if(consts.STEP_REGEX.IsMatch(line) == true)
                 {
                     StartupLog.Text = startupString;
                 }
-                else if(diskAcceptRegex.IsMatch(line) == true)
+                else if(consts.DISK_REGEX.IsMatch(line) == true)
                 {
                     line = await ReadNextLine(); //we're doing a readline here since the next line will (hopefully) be disk stuff
-                    string[] returnedSplitList = Regex.Split(line, @" +|,|=");
-                    List<string> diskElements = returnedSplitList.OfType<string>().ToList(); //fancy way of transforming string array to list
-                    if(diskElements.Count == LENGTH_DSK)
-                    {
-                        if(diskLogs.Count >= MAX_DISK_LOGS)
-                        {
-                            diskLogs.RemoveAt(0);
-                        }
-                        diskLogs.Add(new DiskUsageLog()
-                        {
-                            Sec = secondCounter,
-                            TSK = diskElements[DTSK],
-                            Seize = diskElements[SEIZE],
-                            Queue = diskElements[QUEUE],
-                            App = diskElements[DAPP],
-                            IAR = diskElements[DIAR],
-                            TimeStamp = diskElements[TIME]
-                        });
-                    }
+                    AddToDiskQuery(Regex.Split(line, @" +|,|=").OfType<string>().ToList()); //this giant argument being passed is a fancy way of transforming important disk line to a list of strings
                 }
-                else if(isCpyrtSectionRegex.IsMatch(line) == true)
+                else if(consts.COPYRIGHT_REGEX.IsMatch(line) == true)
                 {
                     //copyright section found, read through until startup messages
                     line = await ReadNextLine();
-                    copyrightBox = "";
-                    Regex startupRegex = new Regex(@"^\[\d\d Startup messages]$");
-                    while(startupRegex.IsMatch(line) != true)
-                    {
-                        copyrightBox = copyrightBox + "\n" + line;
-                        line = await ReadNextLine();
-                    }
-                    copyrightBox = Regex.Replace(copyrightBox, @"�", ""); //it works?
+                    ChangeCopyrightBox();
                 }
 
 
