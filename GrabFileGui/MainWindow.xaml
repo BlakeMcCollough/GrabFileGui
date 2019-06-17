@@ -11,6 +11,7 @@
             <Menu DockPanel.Dock="Top">
                 <MenuItem Header="_File">
                     <MenuItem x:Name="OpenGrab" Header="_Open" Click="OpenGrab_Click" />
+                    <MenuItem x:Name="ViewHistory" Header="_History" Click="ViewHistory_Click" />
                     <Separator />
                     <MenuItem Header="_Exit" Click="MenuItem_Click" />
                 </MenuItem>
@@ -23,23 +24,32 @@
                         <MenuItem x:Name="lowSpeed" Header="Low" Click="lowSpeed_Click" />
                     </MenuItem>
                 </MenuItem>
+                <MenuItem Header="_Help">
+                    <MenuItem x:Name="Copyright" Header="_Copyright" Click="Copyright_Click" />
+                </MenuItem>
             </Menu>
         </DockPanel>
         <TabControl x:Name="Tabs" Margin="5,20,5,10" IsEnabled="False">
             <TabItem Header="Tasks">
                 <Border BorderBrush="Black" BorderThickness="1" Margin="10">
-                    <DataGrid x:Name="TaskList" Margin="9" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed">
+                    <DataGrid x:Name="TaskList" Margin="9" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed" Loaded="TaskList_Loaded_1" CanUserSortColumns="False">
                         <DataGrid.RowDetailsTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Details}" Margin="10" />
                             </DataTemplate>
                         </DataGrid.RowDetailsTemplate>
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <EventSetter Event="Click" Handler="Column_Click" />
+                                <Setter Property="Cursor" Value="Hand" />
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
                     </DataGrid>
                 </Border>
             </TabItem>
             <TabItem Header="Disk">
                 <Border BorderBrush="Black" BorderThickness="1" Margin="10">
-                    <DataGrid x:Name="DiskList" Margin="9" Loaded="DiskList_Loaded" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed">
+                    <DataGrid x:Name="DiskList" Margin="9" Loaded="DiskList_Loaded" CanUserAddRows="False" IsReadOnly="True" RowDetailsVisibilityMode="Collapsed" CanUserSortColumns="False">
                         <DataGrid.RowDetailsTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Details}" Margin="10" />
@@ -52,7 +62,10 @@
                 <TextBox x:Name="StartupLog" ScrollViewer.CanContentScroll="True" VerticalScrollBarVisibility="Auto" Focusable="False" />
             </TabItem>
             <TabItem Header="Performance">
-                <Canvas Name="canGraph" Background="LightBlue" Width="800" Height="400" VerticalAlignment="Center" HorizontalAlignment="Center" Loaded="CanGraph_Loaded" />
+                <Canvas Name="canGraph" Background="LightBlue" VerticalAlignment="Center" HorizontalAlignment="Center" Loaded="CanGraph_Loaded" Height="400" Width="800" >
+                    <Label x:Name="BottomLabel" Content="0%" Canvas.Left="-31" Canvas.Top="382"/>
+                    <Label x:Name="TopLabel" Content="100%" Canvas.Left="-44" Canvas.Top="-3"/>
+                </Canvas>
             </TabItem>
         </TabControl>
 

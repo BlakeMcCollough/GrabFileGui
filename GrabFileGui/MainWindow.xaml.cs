@@ -1,23 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.IO;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using System.Windows.Threading;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32;
-using ZetaIpc.Runtime.Client;
+using System.Windows.Controls.Primitives;
+using System.IO.Pipes;
+using System.IO.Compression;
 
 namespace GrabFileGui
 {
@@ -27,20 +19,99 @@ namespace GrabFileGui
     public partial class MainWindow : Window
     {
         private string path;
+        private string copyrightBox;
+        private string historyRoot;
+        private string historyFolder;
         private bool taskRunning; //makes sure that when TaskList is loaded again by mistake, it won't start a new work thread
         private bool stopped;
+        private bool fileOpened;
+        private bool windowIsLoaded;
+        private bool waitingOnFeedback; //is true when readNextLine() is awaiting input
         private int delay;
+        private int sortBy;
+        private StreamReader infile;
+        private StreamWriter outfile;
+        private ClientPipe readPipe;
         private CancellationTokenSource killDelay;
 
         public MainWindow()
         {
-            path = "";
+            path = "live";
+            historyRoot = "GrabHistory";
+            historyFolder = historyRoot + @"\" + DateTime.Now.ToString("MMddyyyy");
+            fileOpened = false;
             taskRunning = false;
             stopped = false;
+            windowIsLoaded = false;
             delay = 1000;
+            sortBy = 1;
             killDelay = new CancellationTokenSource(); //kills the delay when next is pressed
             InitializeComponent();
         }
+
+        //when live data is being read, this is called first to prepare a file to write to; also responsible for zipping/deleting files
+        private void InitializeGrabHistory() //creator of a new file to log grab history
+        {
+            if (Directory.Exists(historyFolder) == false)
+            {
+                Directory.CreateDirectory(historyFolder);
+            }
+
+            foreach(string dir in Directory.GetDirectories(historyRoot))
+            {
+                if(String.Compare(dir, historyFolder) != 0)
+                {
+                    ZipFile.CreateFromDirectory(dir, dir + ".zip");
+                    Directory.Delete(dir, true);
+                }
+            }
+            foreach (string file in Directory.GetFiles(historyRoot, "*.zip"))
+            {
+                DateTime then = Directory.GetLastAccessTimeUtc(file);
+                DateTime now = DateTime.UtcNow;
+                if(now.Subtract(then).TotalDays >= 14)
+                {
+                    Directory.Delete(file, true);
+                }
+            }
+
+            string newFile = historyFolder + @"\" + DateTime.Now.ToString("HHmmss") + ".txt";
+            outfile = new StreamWriter(newFile);
+        }
+
+        //writes things to grabhistory file
+        private void UpdateGrabHistory(string newInput)
+        {
+            try //input is lost if an exception is thrown
+            {
+                outfile.WriteLine(newInput);
+            }
+            catch
+            {
+                InitializeGrabHistory();
+            }
+        }
+
+        //should be called when we want more information, is async so it can wait however long it may take the server
+        private async System.Threading.Tasks.Task<string> ReadNextLine()
+        {
+            if(fileOpened == true)
+            {
+                return infile.ReadLine();
+            }
+
+            waitingOnFeedback = true;
+            System.Threading.Tasks.Task<string> t1 = System.Threading.Tasks.Task.Run(() => readPipe.Read());
+            await t1;
+            waitingOnFeedback = false;
+            UpdateGrabHistory(t1.Result);
+            return t1.Result;
+        }
+
+
+
+
+
 
         //ESSENTIALLY works as main, responsible for waiting a second and updating the tasks
         private async void TaskList_Loaded() //I've added async here so that this runs asynchronously, meaning I can use Task.Delay without shutting down the UI
@@ -54,7 +125,9 @@ namespace GrabFileGui
 
             const double GRAPH_MARGIN = 10;
             const int LENGTH_DSK = 10;
+            const int MAX_DISK_LOGS = 20;
             const int SEC = 1;
+            const int SORT_TSK = 6, SORT_KEY = 2, SORT_DA = 3, SORT_RD = 4, SORT_WR = 5;
             const int TSK = 0, CLNT = 1, APP = 2, VER = 3, IAR = 4, CK = 5, SVC = 6, CPU = 7, FILE = 8, KEY = 9, DA = 10, RD = 11, WR = 12; //corresponds to index in task list
             int[] LENGTH_TSK = { 3, 12, 8, 8, 4, 2, 2, 12, 7, 8, 8, 8, 8 }; //list of sizes corresponding to task consts
             const int DTSK = 2, SEIZE = 4, QUEUE = 6, DAPP = 7, DIAR = 8, TIME = 9; //corresponds to index in disklog list
@@ -66,20 +139,45 @@ namespace GrabFileGui
             Regex stepAcceptRegex = new Regex(@"^\[\d\d Task info \d+]$");
             //similar to tskAccept, but checks for disk seize header
             Regex diskAcceptRegex = new Regex(@"^\[\d\d Disk seize]$");
-            
+            //this is just used to find the copyright section, the while loop should read through it until startup section is found
+            Regex isCpyrtSectionRegex = new Regex(@"^\[\d\d Copyright]$");
 
-            StreamReader infile = new StreamReader(path);
-            string line = infile.ReadLine();
+
+            if(fileOpened == true)
+            {
+                infile = new StreamReader(path);
+            }
+            else
+            {
+                InitializeGrabHistory();
+                readPipe = new ClientPipe();
+                if(readPipe.Open(".") == false) //keep server name as . for now
+                {
+                    MessageBox.Show("Failed to connect to server");
+                    taskRunning = false;
+                    Tabs.IsEnabled = false;
+                    return;
+                }
+            }
+            string line = await ReadNextLine();
+
+
+
+            //StreamReader infile = new StreamReader(path);
+            //string line = infile.ReadLine();
             int secondCounter = 1;
             double netUsage = 0;
+            copyrightBox = string.Empty;
 
             List<Task> runningTasks = new List<Task>(); //list of task objects to be displayed by DataGrid
             List<DiskUsageLog> diskLogs = new List<DiskUsageLog>();
             List<string> usageQuery = new List<string>(); //if CPU changed for a task, its TSK index is stored here in an attempt to reduce time complexity
             TaskList.ItemsSource = runningTasks;
             DiskList.ItemsSource = diskLogs;
+            StartupLog.Text = "";
             string startupString = line;
 
+            canGraph.Children.Clear(); //makes sure that when a new file opens, the old graph goes away
             UsageGraph CPUgraph = new UsageGraph(GRAPH_MARGIN, canGraph.Width - GRAPH_MARGIN, GRAPH_MARGIN, canGraph.Height - GRAPH_MARGIN, canGraph.Width, canGraph.Height, GRAPH_MARGIN); //makes a new graph object
             canGraph.Children.Add(CPUgraph.getXaxis()); //draw x-axis
             canGraph.Children.Add(CPUgraph.getYaxis()); //draw y-axis
@@ -181,30 +279,59 @@ namespace GrabFileGui
                             runningTasks.Insert(i, currentTask);
                         }
                     }
-
-                    TaskList.Items.Refresh();
-                    DiskList.Items.Refresh();
-                    CPUgraph.addNewPoint(netUsage);
-
-                    do
+                    switch(sortBy)
                     {
-                        try
-                        {
-                            await System.Threading.Tasks.Task.Delay(delay, killDelay.Token);
-                        }
-                        catch
-                        {
-                            //next has been pressed
-                            killDelay.Dispose();
-                            killDelay = new CancellationTokenSource();
+                        case SORT_DA:
+                            runningTasks.Sort((x, y) => y.DACalls.CompareTo(x.DACalls));
                             break;
-                        }
-                        
-                    } while (stopped == true);
+                        case SORT_KEY:
+                            runningTasks.Sort((x, y) => y.KeyCalls.CompareTo(x.KeyCalls));
+                            break;
+                        case SORT_RD:
+                            runningTasks.Sort((x, y) => y.DskReads.CompareTo(x.DskReads));
+                            break;
+                        case SORT_WR:
+                            runningTasks.Sort((x, y) => y.DskWrite.CompareTo(x.DskWrite));
+                            break;
+                        case SORT_TSK:
+                            runningTasks.Sort((x, y) => x.TSK.CompareTo(y.TSK));
+                            break;
+                    }
+
+
+                    if (stopped == false || fileOpened == true)
+                    {
+                        TaskList.Items.Refresh();
+                        CPUgraph.addNewPoint(netUsage);
+                    }
+                    DiskList.Items.Refresh(); //throws an exception if this is paused
+
+                    //if the delay needs to stop, this catches the exception thrown; this whole block is encapsulated in an if because it should only pause if reading a file
+                    if (fileOpened == true)
+                    {
+                        waitingOnFeedback = true;
+                        do
+                        {
+                            try
+                            {
+                                await System.Threading.Tasks.Task.Delay(delay, killDelay.Token);
+                            }
+                            catch
+                            {
+                                //next has been pressed
+                                killDelay.Dispose();
+                                killDelay = new CancellationTokenSource();
+                                break;
+                            }
+
+                        } while (stopped == true);
+                        waitingOnFeedback = false;
+                    }
 
                     usageQuery.Clear();
                     netUsage = 0;
                     secondCounter = secondCounter + 1;
+                    Console.WriteLine(secondCounter);
                 }
                 else if(stepAcceptRegex.IsMatch(line) == true)
                 {
@@ -212,11 +339,15 @@ namespace GrabFileGui
                 }
                 else if(diskAcceptRegex.IsMatch(line) == true)
                 {
-                    line = infile.ReadLine(); //we're doing a readline here since the next line will (hopefully) be disk stuff
+                    line = await ReadNextLine(); //we're doing a readline here since the next line will (hopefully) be disk stuff
                     string[] returnedSplitList = Regex.Split(line, @" +|,|=");
                     List<string> diskElements = returnedSplitList.OfType<string>().ToList(); //fancy way of transforming string array to list
                     if(diskElements.Count == LENGTH_DSK)
                     {
+                        if(diskLogs.Count >= MAX_DISK_LOGS)
+                        {
+                            diskLogs.RemoveAt(0);
+                        }
                         diskLogs.Add(new DiskUsageLog()
                         {
                             Sec = secondCounter,
@@ -229,12 +360,26 @@ namespace GrabFileGui
                         });
                     }
                 }
+                else if(isCpyrtSectionRegex.IsMatch(line) == true)
+                {
+                    //copyright section found, read through until startup messages
+                    line = await ReadNextLine();
+                    copyrightBox = "";
+                    Regex startupRegex = new Regex(@"^\[\d\d Startup messages]$");
+                    while(startupRegex.IsMatch(line) != true)
+                    {
+                        copyrightBox = copyrightBox + "\n" + line;
+                        line = await ReadNextLine();
+                    }
+                    copyrightBox = Regex.Replace(copyrightBox, @"�", ""); //it works?
+                }
+
 
                 if(StartupLog.Text == "")
                 {
                     startupString = startupString + line + "\n";
                 }
-                line = infile.ReadLine();
+                line = await ReadNextLine();
             }
 
             if(runningTasks.Any() == true && taskRunning == true) //read through the entire grab file
@@ -252,7 +397,15 @@ namespace GrabFileGui
             }
 
             taskRunning = false;
-            infile.Close();
+            if (fileOpened == true)
+            {
+                infile.Close();
+            }
+            else
+            {
+                outfile.Close();
+                readPipe.Close();
+            }
         }
 
 
@@ -261,21 +414,32 @@ namespace GrabFileGui
             //Console.WriteLine("Loaded disklist gui");
         }
 
-        private void OpenGrab_Click(object sender, RoutedEventArgs e)
+        //when file is opened; if this is called while data is still being read, it siginals a global and waits every 1000ms for it to finish
+        private async void OpenGrab_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog newFileWindow = new OpenFileDialog();
             if(newFileWindow.ShowDialog() == true)
             {
                 taskRunning = false;
                 killDelay.Cancel();
+                while (waitingOnFeedback == true)
+                {
+                    await System.Threading.Tasks.Task.Delay(1000);
+                }
                 path = newFileWindow.FileName;
+                fileOpened = true;
                 TaskList_Loaded();
             }
         }
 
+        //"next" is clicked
         private void Refresh_Click(object sender, RoutedEventArgs e)
         {
             killDelay.Cancel();
+            if(stopped == true && fileOpened == false)
+            {
+                TaskList.Items.Refresh();
+            }
         }
 
         private void Pause_Click(object sender, RoutedEventArgs e)
@@ -321,63 +485,66 @@ namespace GrabFileGui
 
         private void CanGraph_Loaded(object sender, RoutedEventArgs e)
         {
-            //const double MARGIN = 10;
-            //const double STEP = 10;
-            //double xMax = canGraph.Width - MARGIN;
-            //double yMax = canGraph.Height - MARGIN;
+            //do nothing
+        }
 
-            //GeometryGroup xGeo = new GeometryGroup();
-            //xGeo.Children.Add(new LineGeometry(
-            //    new Point(0, yMax), new Point(canGraph.Width, yMax)
-            //    ));
+        private void Copyright_Click(object sender, RoutedEventArgs e)
+        {
+            if(string.IsNullOrEmpty(copyrightBox) == false)
+            {
+                MessageBox.Show(copyrightBox);
+            }
+        }
 
-            //for(double x = MARGIN + STEP; x <= canGraph.Width; x += STEP)
-            //{
-            //    xGeo.Children.Add(new LineGeometry(
-            //        new Point(x, yMax - MARGIN/2), new Point(x, yMax + MARGIN / 2)
-            //    ));
+        private void TaskList_Loaded_1(object sender, RoutedEventArgs e)
+        {
+            if(windowIsLoaded == false)
+            {
+                windowIsLoaded = true;
+                TaskList_Loaded();
+            }
+        }
 
-            //}
-            //System.Windows.Shapes.Path xPath = new System.Windows.Shapes.Path();
-            //xPath.StrokeThickness = 1;
-            //xPath.Stroke = Brushes.Black;
-            //xPath.Data = xGeo;
-            //canGraph.Children.Add(xPath);
+        //arranges data in specified order so every update keeps that order
+        private void Column_Click(object sender, RoutedEventArgs e)
+        {
+            DataGridColumnHeader columnHeader = sender as DataGridColumnHeader;
+            if (String.Compare(columnHeader.Content.ToString(), "KeyCalls") == 0)
+            {
+                sortBy = 2;
+            }
+            else if (String.Compare(columnHeader.Content.ToString(), "DACalls") == 0)
+            {
+                sortBy = 3;
+            }
+            else if (String.Compare(columnHeader.Content.ToString(), "DskReads") == 0)
+            {
+                sortBy = 4;
+            }
+            else if (String.Compare(columnHeader.Content.ToString(), "DskWrite") == 0)
+            {
+                sortBy = 5;
+            }
+            else if (String.Compare(columnHeader.Content.ToString(), "TSK") == 0)
+            {
+                sortBy = 6;
+            }
+            else
+            {
+                sortBy = 1;
+            }
+        }
 
-
-
-            //GeometryGroup yGeo = new GeometryGroup();
-            //yGeo.Children.Add(new LineGeometry(
-            //    new Point(MARGIN, 0), new Point(MARGIN, canGraph.Height)
-            //    ));
-
-            //for (double y = STEP; y <= canGraph.Height - STEP; y += STEP)
-            //{
-            //    yGeo.Children.Add(new LineGeometry(
-            //        new Point(MARGIN - MARGIN/2, y), new Point(MARGIN + MARGIN/2, y)
-            //    ));
-
-            //}
-            //System.Windows.Shapes.Path yPath = new System.Windows.Shapes.Path();
-            //yPath.StrokeThickness = 1;
-            //yPath.Data = yGeo;
-            //canGraph.Children.Add(yPath);
-
-
-            ////data sets
-            //PointCollection pts = new PointCollection();
-            //pts.Add(new Point(MARGIN, MARGIN));
-            //pts.Add(new Point(100, 100));
-            //pts.Add(new Point(200, 180));
-            //pts.Add(new Point(300, 200));
-            //pts.Add(new Point(400, 120));
-
-            //Polyline myLine = new Polyline();
-            //myLine.StrokeThickness = 1;
-            //myLine.Stroke = Brushes.Blue;
-            //myLine.Points = pts;
-            //canGraph.Children.Add(myLine);
-            //pts.Add(new Point(xMax, yMax));
+        private void ViewHistory_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(historyRoot);
+            }
+            catch
+            {
+                MessageBox.Show("History folder not found");
+            }
         }
     }
 }
