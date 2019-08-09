@@ -59,7 +59,9 @@
                 </Border>
             </TabItem>
             <TabItem Header="Startup">
-                <TextBox x:Name="StartupLog" ScrollViewer.CanContentScroll="True" VerticalScrollBarVisibility="Auto" Focusable="False" />
+                <ScrollViewer>
+                    <TextBlock x:Name="StartupLog" ScrollViewer.CanContentScroll="True" />
+                </ScrollViewer>
             </TabItem>
             <TabItem Header="Performance">
                 <Canvas Name="canGraph" Background="LightBlue" VerticalAlignment="Center" HorizontalAlignment="Center" Loaded="CanGraph_Loaded" Height="400" Width="800" >

@@ -23,6 +23,7 @@ namespace GrabFileGui
         public readonly Regex STEP_REGEX;
         public readonly Regex DISK_REGEX;
         public readonly Regex COPYRIGHT_REGEX;
+        public readonly Regex STARTUP_REGEX;
 
         public Constants()
         {
@@ -45,6 +46,8 @@ namespace GrabFileGui
             DISK_REGEX = new Regex(@"^\[\d\d Disk seize]$");
             //this is just used to find the copyright section, the while loop should read through it until startup section is found
             COPYRIGHT_REGEX = new Regex(@"^\[\d\d Copyright]$");
+            //is to be used after copyright box is read, indicating startup messages
+            STARTUP_REGEX = new Regex(@"^\[\d\d Startup messages]$");
         }
     }
 }
